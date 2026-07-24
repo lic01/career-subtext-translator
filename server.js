@@ -38,14 +38,15 @@ function parseCoze(text) {
     return str;
   };
 
-  // 一句话解码 + 人性洞察指数
+  // 一句话解码 + 人性洞察指数（两段独立解析，避免 decM 边界切到 index 行）
   const decM = text.match(/【一句话解码】[^\n]*\n?([\s\S]*?)(?=【三层翻译】|【这样接话】|【高发阶段|【场景异读】|【拆解】|【CTA)/);
   if (decM) {
     let block = decM[1];
-    const idxM = block.match(/人性洞察指数[^\n]*?(\d+(?:\.\d+)?)\s*\/\s*10/);
-    if (idxM) out.index = parseFloat(idxM[1]);
     out.decoded = clean(until(block, ['人性洞察指数'])).replace(/\s*[+|＋]\s*$/, '');
   }
+  // index 独立从全文抓，不受 decM 边界影响
+  const idxM = text.match(/人性洞察指数[^\n]*?(\d+(?:\.\d+)?)\s*\/\s*10/);
+  if (idxM) out.index = parseFloat(idxM[1]);
 
   // 三层翻译 A/B/C 面（兼容 Coze 输出的 "1. A面（...）" 编号格式）
   const layerBlock = text.match(/【三层翻译】[\s\S]*?([\s\S]*?)(?=【这样接话】|【高发阶段|【场景异读】|【拆解】|【CTA|$)/);
@@ -98,9 +99,11 @@ function parseCoze(text) {
   if (anM) out.analysis = clean(anM[1]);
 
   // CTA + 金句（金句取「金句：」后整行，兼容句内含引号；CTA 取去除金句行后的剩余）
-  const ctM = text.match(/【CTA\s*\+\s*金句】[^\n]*\n?([\s\S]*?)$/);
+  // 注意：Coze 偶发把完整答案整段重复推送，【CTA + 金句】之后可能还跟着第二份内容的【一句话解码】标记，
+  // 这里用 lookahead 限定 CTA 块到第一个【标记前，避免翻倍内容渗入 CTA 框。
+  const ctM = text.match(/【CTA\s*\+\s*金句】[^\n]*\n?([\s\S]*?)(?=\n【一句话解码】|\n【三层翻译】|\n【这样接话】|\n【高发阶段|\n【场景异读】|\n【拆解】|\n【CTA|$)/);
   if (ctM) {
-    const block = ctM[1];
+    let block = ctM[1];
     const qM = block.match(/金句[：: ]*(.+?)\s*$/m);
     if (qM) {
       out.quote = qM[1].trim().replace(/^["「『]/, '').replace(/["」』]$/, '');
@@ -200,5 +203,5 @@ if (require.main === module) {
     if (!PAT) console.log('⚠️  未设置 COZE_PAT，前端将使用演示模式（不连真 Coze）。运行：COZE_PAT=你的令牌 node server.js');
   });
 }
-
-module.exports = { parseCoze, callCoze };
+// ⚠️ 不要 module.exports！会覆盖 Vercel @vercel/node 的默认请求处理器。
+// 本地单测 parseCoze：用 node -e "eval(require('fs').readFileSync('./server.js','utf-8').replace(/^[^p]*parseCoze/m, 'const parseCoze = ').match(/function parseCoze[\s\S]*?^}/m)[0])" 测试。
