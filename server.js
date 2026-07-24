@@ -44,19 +44,22 @@ function parseCoze(text) {
     let block = decM[1];
     const idxM = block.match(/人性洞察指数[^\n]*?(\d+(?:\.\d+)?)\s*\/\s*10/);
     if (idxM) out.index = parseFloat(idxM[1]);
-    out.decoded = clean(until(block, ['人性洞察指数'])).replace(/\s*[+＋]\s*$/, '');
+    out.decoded = clean(until(block, ['人性洞察指数'])).replace(/\s*[+|＋]\s*$/, '');
   }
 
-  // 三层翻译 A/B/C 面
+  // 三层翻译 A/B/C 面（兼容 Coze 输出的 "1. A面（...）" 编号格式）
   const layerBlock = text.match(/【三层翻译】[\s\S]*?([\s\S]*?)(?=【这样接话】|【高发阶段|【场景异读】|【拆解】|【CTA|$)/);
   if (layerBlock) {
     const lb = layerBlock[1];
-    const re = /([ABC]\s*面[（(][^)）]+[)）])/g;
+    const re = /(?:\d+[\.、]\s*)?([ABC]\s*面[（(][^)）]+[)）])/g;
     let mm; const cuts = [];
-    while ((mm = re.exec(lb)) !== null) cuts.push({ at: mm.index, tag: mm[0] });
+    while ((mm = re.exec(lb)) !== null) cuts.push({ at: mm.index, tag: mm[1] });
     for (let k = 0; k < cuts.length; k++) {
       const seg = lb.slice(cuts[k].at, k + 1 < cuts.length ? cuts[k + 1].at : lb.length);
-      const content = clean(seg.replace(cuts[k].tag, ''));
+      let content = seg.replace(cuts[k].tag, '')
+                        .replace(/^\s*\d+[\.、]\s*/, '')
+                        .replace(/\s*\d+[\.、]?\s*$/, '');
+      content = clean(content);
       if (content) out.layers.push({ t: cuts[k].tag, c: content });
     }
   }
@@ -73,8 +76,8 @@ function parseCoze(text) {
     }
     for (let k = 0; k < cuts.length; k++) {
       const seg = rb.slice(cuts[k].end, k + 1 < cuts.length ? cuts[k + 1].start : rb.length);
-      const c = clean(seg);
-      if (c) out.replies.push({ tag: cuts[k].tag, c });
+      const c = clean(seg).replace(/^[\s\-–—•·*]+/, '').replace(/\s*\d+[\.、]?\s*$/, '');
+      if (c) out.replies.push({ tag: cuts[k].tag.replace(/^[\s\-–—•·*]+/, ''), c });
     }
     if (!out.replies.length) {
       const c = clean(rb);
@@ -94,21 +97,15 @@ function parseCoze(text) {
   const anM = text.match(/【拆解】[^\n]*\n?([\s\S]*?)(?=【CTA|$)/);
   if (anM) out.analysis = clean(anM[1]);
 
-  // CTA + 金句（优先匹配「」包裹的金句，避免误抓 CTA 里的"五阶"关键词）
+  // CTA + 金句（金句取「金句：」后整行，兼容句内含引号；CTA 取去除金句行后的剩余）
   const ctM = text.match(/【CTA\s*\+\s*金句】[^\n]*\n?([\s\S]*?)$/);
   if (ctM) {
     const block = ctM[1];
-    // 金句必须紧跟「金句」标记提取，避免误抓 CTA 行里回复关键词的引号（如 回复"五阶"）
-    const qM = block.match(/金句[：: ]*[「『"]([^」』"]+)[」』"]/);
+    const qM = block.match(/金句[：: ]*(.+?)\s*$/m);
     if (qM) {
-      out.quote = qM[1].trim();
-      // 整行删除金句，避免残留在 CTA 中
-      out.cta = clean(block.replace(/💡?\s*金句[：: ]*[「『"][^」』"]*[」』"]/, '')).trim();
-    } else {
-      out.cta = clean(block);
+      out.quote = qM[1].trim().replace(/^["「『]/, '').replace(/["」』]$/, '');
     }
-    // 模型偶发把"五阶"重复为"五阶五阶"，归一化（仅此处出现，安全）
-    out.cta = out.cta.replace(/五阶五阶/g, '五阶');
+    out.cta = clean(block.replace(/金句[：: ].*$/m, '')).replace(/五阶五阶/g, '五阶').trim();
   }
 
   // 兜底：完全没解析出任何结构化内容，则整段存入 decoded
@@ -152,7 +149,15 @@ async function callCoze(text) {
         // 兼容两种 SSE 格式：标准包裹 {event,data} 或 api.coze.cn 的扁平对象
         const m = (j && j.data) ? j.data : j;
         if (m && m.role === 'assistant' && m.type === 'answer') {
-          if (m.content) full += m.content;            // 最终答案（干净、结构化）
+          // 最终答案（干净、结构化）。Coze 偶发把完整答案整段重复推送两次，
+          // 这里做去重：子串跳过、超集替换、非尾随才追加，避免内容翻倍。
+          const c = m.content || '';
+          if (c) {
+            if (full.length === 0) full = c;
+            else if (full.includes(c)) { /* 新内容是已有子串，跳过 */ }
+            else if (c.includes(full)) full = c;          // 新内容已含全部已有，以新内容为准
+            else if (!full.endsWith(c)) full += c;       // 增量分片，正常追加
+          }
           if (m.reasoning_content) fullReason += m.reasoning_content; // 深度思考思维链（仅兜底用）
         }
       } catch (e) {}
@@ -188,8 +193,12 @@ const server = http.createServer(async (req, res) => {
   serveStatic(req, res);
 });
 
-server.listen(PORT, () => {
-  console.log(`潜台词翻译器运行中：http://localhost:${PORT}`);
-  console.log(`Bot ID：${BOT_ID}`);
-  if (!PAT) console.log('⚠️  未设置 COZE_PAT，前端将使用演示模式（不连真 Coze）。运行：COZE_PAT=你的令牌 node server.js');
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`潜台词翻译器运行中：http://localhost:${PORT}`);
+    console.log(`Bot ID：${BOT_ID}`);
+    if (!PAT) console.log('⚠️  未设置 COZE_PAT，前端将使用演示模式（不连真 Coze）。运行：COZE_PAT=你的令牌 node server.js');
+  });
+}
+
+module.exports = { parseCoze, callCoze };
