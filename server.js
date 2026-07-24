@@ -198,6 +198,10 @@ async function streamTranslate(text, res) {
   const reader = resp.body.getReader();
   const dec = new TextDecoder('utf-8');
   let buf = '', full = '', reasonFull = '';
+  // Heartbeat：每 3 秒写一行 SSE 注释，穿透代理缓冲并告诉前端"还在思考"
+  const hb = setInterval(() => {
+    try { res.write(`: hb ${Date.now()}\n\n`); } catch (e) {}
+  }, 3000);
   // 仅转发 answer 的"新增尾部"，避免 completed 完整段与增量重复导致前端翻倍
   const appendAnswer = (c) => {
     if (!c) return;
@@ -230,6 +234,7 @@ async function streamTranslate(text, res) {
     }
   }
   const finalText = full.trim() ? full : reasonFull;
+  clearInterval(hb);
   if (!finalText) { sse(res, { type: 'error', message: 'empty answer from Coze' }); return; }
   try {
     sse(res, { type: 'done', data: parseCoze(finalText) });
