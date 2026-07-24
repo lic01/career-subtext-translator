@@ -1,6 +1,7 @@
 // 职场潜台词翻译器 — Coze 代理 + 静态托管（Node，零依赖）
 // 运行：COZE_PAT=xxx node server.js   （COZE_BOT_ID 已内置默认值，如需覆盖可设环境变量）
 // 本地访问：http://localhost:3000
+// Vercel：把 module.exports 当作 (req, res) handler；不需改 vercel.json。
 
 const http = require('http');
 const fs = require('fs');
@@ -171,7 +172,10 @@ async function callCoze(text) {
   return parseCoze(finalText);
 }
 
-const server = http.createServer(async (req, res) => {
+// Vercel / 本地 双模式入口：导出 HTTP handler（(req, res) => void）
+// Vercel 的 @vercel/node 会把 module.exports 当作请求处理器来调用
+// 本地直接 `node server.js` 时，require.main === module，再走 http.createServer 监听端口
+function handler(req, res) {
   if (req.method === 'POST' && req.url.split('?')[0] === '/api/translate') {
     const chunks = [];
     req.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(String(c))));
@@ -194,14 +198,19 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === 'OPTIONS') { res.setHeader('Access-Control-Allow-Origin', '*'); res.writeHead(204); return res.end(); }
   serveStatic(req, res);
-});
+}
+
+// Vercel handler export（Vercel 期望 module.exports 是函数；附加属性 Vercel 不会当作入口）
+module.exports = handler;
+// 单测暴露（不影响 Vercel：函数上的属性 Vercel 不会用来当 handler）
+module.exports.parseCoze = parseCoze;
+module.exports.callCoze = callCoze;
 
 if (require.main === module) {
+  const server = http.createServer(handler);
   server.listen(PORT, () => {
     console.log(`潜台词翻译器运行中：http://localhost:${PORT}`);
     console.log(`Bot ID：${BOT_ID}`);
     if (!PAT) console.log('⚠️  未设置 COZE_PAT，前端将使用演示模式（不连真 Coze）。运行：COZE_PAT=你的令牌 node server.js');
   });
 }
-// ⚠️ 不要 module.exports！会覆盖 Vercel @vercel/node 的默认请求处理器。
-// 本地单测 parseCoze：用 node -e "eval(require('fs').readFileSync('./server.js','utf-8').replace(/^[^p]*parseCoze/m, 'const parseCoze = ').match(/function parseCoze[\s\S]*?^}/m)[0])" 测试。
