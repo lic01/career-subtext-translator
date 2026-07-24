@@ -153,7 +153,11 @@ async function callCoze(text) {
         const j = JSON.parse(dl.slice(5).trim());
         // 兼容两种 SSE 格式：标准包裹 {event,data} 或 api.coze.cn 的扁平对象
         const m = (j && j.data) ? j.data : j;
-        if (m && m.role === 'assistant' && m.type === 'answer') {
+        // 调试：每个 assistant 事件打一行，方便从 Vercel Logs 看清 Coze 实际 type
+        if (m && m.role === 'assistant' && m.type) console.log('[coze-evt]', m.type, JSON.stringify((m.content||'').slice(0,60)));
+        // 放宽 type 判断：Coze 不同时期/不同配置会发 'answer' / 'verbose' / 'follow_up' 多种类型，
+        // 只要 content 是文本就累积（去重逻辑保证不翻倍）
+        if (m && m.role === 'assistant' && ['answer','verbose','follow_up'].includes(m.type)) {
           // 最终答案（干净、结构化）。Coze 偶发把完整答案整段重复推送两次，
           // 这里做去重：子串跳过、超集替换、非尾随才追加，避免内容翻倍。
           const c = m.content || '';
