@@ -215,15 +215,34 @@ go.onclick=async()=>{
   if(!text){input.focus();return;}
   const scene=collectScene();
   const full = scene ? (text+"\n[场景信息] "+scene) : text;
+  const _goText = go.textContent;
   go.disabled=true; result.style.display="block"; loading.style.display="block"; cards.style.display="none"; act.style.display="none";
+  // 实时计时，让用户知道"在动"而不是卡死
+  const t0 = Date.now();
+  const tick = setInterval(()=>{
+    const s = Math.floor((Date.now()-t0)/1000);
+    go.textContent = `翻译中 ${s}s`;
+    if(s>30) loading.innerHTML = '<div class="spinner"></div>深度思考中，已等 '+s+'s…<br/><span style="font-size:12px;color:#888">（首次推理需拉知识库，耐心等一下；超过 60s 会自动超时）</span>';
+    else if(s>10) loading.innerHTML = '<div class="spinner"></div>深度思考中… 已等 '+s+'s';
+  }, 500);
   const base=(window.APP_CONFIG&&APP_CONFIG.PROXY_URL)||"";
   try{
-    const r=await fetch(base+"/api/translate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:full})});
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(()=>ctrl.abort(), 60000); // 60s 超时保护
+    const r=await fetch(base+"/api/translate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:full}),signal:ctrl.signal});
+    clearTimeout(timeoutId);
     if(!r.ok) throw new Error("bad");
     const j=await r.json();
     render(j.data||j);
   }catch(e){
-    render(DEMO, true);
+    if(e.name==="AbortError"){
+      loading.innerHTML = '<div style="color:#c0392b">⏱ 请求超时（>60s），请检查网络或重试</div>';
+    } else {
+      render(DEMO, true);
+    }
+  }finally{
+    clearInterval(tick);
+    go.disabled=false; go.textContent=_goText;
   }
 };
 
@@ -259,27 +278,71 @@ function esc(s){return (s||"").replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":
 
 $("#share").onclick=()=>{
   const c=$("#shareImg"), x=c.getContext("2d");
-  const W=1080,H=1440; c.width=W;c.height=H;
+  const W=1080;
+  // 先按内容估算总高度，分配 canvas
   const D = (window.__last||DEMO);
+  // 估算每段行高（按 26px 字号 + 行距 38 估算）
+  const lineH = 38;
+  const estLines = (txt, fs) => {
+    if(!txt) return 0;
+    x.font = fs;
+    // 粗估：每 24 个汉字宽
+    const charsPerLine = Math.floor((W-92) / (fs.includes('bold')?28:24));
+    return Math.max(1, Math.ceil(txt.length / charsPerLine));
+  };
+  let h = 150; // 头部
+  h += 46 + estLines(D.decoded||"", "bold 36px sans-serif") * 46 + 16; // 一句话解码
+  h += 22 + 58 + 56; // 指数条 + 指数数字
+  h += 48; (D.layers||[]).forEach(l => h += 38 + estLines(l.c||"", "26px sans-serif") * 36 + 14);
+  h += 44; (D.replies||[]).slice(0,1).forEach(r => h += 38 + estLines(r.c||"", "26px sans-serif") * 36 + 14); // 仅画第一版
+  if(D.replies && D.replies.length>1) h += 30; // "其他两版见原页" 提示
+  if(D.stage) h += 10 + 44 + estLines(D.stage, "bold 28px sans-serif") * lineH + 14;
+  if(D.analysis) h += 10 + 44 + estLines(D.analysis, "bold 28px sans-serif") * lineH + 14;
+  if(D.cta) h += 10 + 44 + estLines(D.cta, "26px sans-serif") * lineH + 14;
+  if(D.quote) h += 10 + 44 + estLines(D.quote||"", "italic 28px sans-serif") * lineH + 14;
+  h += 130; // 底部 + padding
+  // 至少 1440，向上取整到 8 倍数
+  const H = Math.max(1440, Math.ceil(h/8)*8 + 60);
+  c.width=W; c.height=H;
+  // 画头部
   x.fillStyle="#0a7a3f"; x.fillRect(0,0,W,150);
   x.fillStyle="#fff"; x.font="bold 46px sans-serif"; x.fillText("职场五阶说 · 潜台词翻译器",46,96);
   x.fillStyle="#eaf6ee"; x.font="24px sans-serif"; x.fillText((input.value||"职场黑话").slice(0,26),46,128);
   x.fillStyle="#fff"; x.fillRect(0,150,W,H-150);
   let y=210;
+  // 一句话解码
   x.fillStyle="#0a7a3f"; x.font="bold 30px sans-serif"; x.fillText("⚡ 一句话解码",46,y); y+=46;
   x.fillStyle="#1d2520"; x.font="bold 36px sans-serif"; y=wrap(x, D.decoded||"", 46, y, W-92, 46)+16;
+  // 人性洞察指数
   x.fillStyle="#eef2f0"; x.fillRect(46,y,W-92,22);
   const idx=Math.max(0,Math.min(10,parseFloat(D.index)||0));
   const g=x.createLinearGradient(46,0,W-46,0); g.addColorStop(0,"#1aa85c");g.addColorStop(.6,"#e1b03a");g.addColorStop(1,"#c0392b");
   x.fillStyle=g; x.fillRect(46,y,(W-92)*idx/10,22); y+=58;
   x.fillStyle="#c0392b"; x.font="bold 28px sans-serif"; x.fillText("人性洞察指数 "+idx.toFixed(1)+"/10",46,y); y+=56;
+  // 三层翻译
   x.fillStyle="#0a7a3f"; x.font="bold 30px sans-serif"; x.fillText("🔍 三层翻译",46,y); y+=48;
-  x.font="26px sans-serif";
   (D.layers||[]).forEach(l=>{ x.fillStyle="#0a7a3f"; x.font="bold 26px sans-serif"; x.fillText(l.t,46,y); y+=38; x.fillStyle="#1d2520"; x.font="26px sans-serif"; y=wrap(x,l.c,46,y,W-92,36)+14; });
+  // 这样接话（仅画首版，避免图过长；提示"其他两版见原页"）
+  if((D.replies||[]).length){
+    y+=10; x.fillStyle="#0a7a3f"; x.font="bold 30px sans-serif"; x.fillText("🗺️ 这样接话（推荐）",46,y); y+=48;
+    const r0 = D.replies[0];
+    x.fillStyle="#0a7a3f"; x.font="bold 26px sans-serif"; x.fillText(r0.tag,46,y); y+=38;
+    x.fillStyle="#1d2520"; x.font="26px sans-serif"; y=wrap(x,r0.c,46,y,W-92,36)+14;
+    if(D.replies.length>1){
+      x.fillStyle="#888"; x.font="22px sans-serif"; x.fillText(`（另有 ${D.replies.length-1} 版应对话术，详见翻译页）`,46,y); y+=30;
+    }
+  }
+  // 高发阶段·同句异读
   if(D.stage){ y+=10; x.fillStyle="#0a7a3f"; x.font="bold 30px sans-serif"; x.fillText("🪜 高发阶段·同句异读",46,y); y+=44; x.fillStyle="#b8860b"; x.font="bold 28px sans-serif"; y=wrap(x,D.stage,46,y,W-92,38)+14; }
+  // 拆解（之前漏画，本次补上）
+  if(D.analysis){ y+=10; x.fillStyle="#0a7a3f"; x.font="bold 30px sans-serif"; x.fillText("⚕️ 拆解",46,y); y+=44; x.fillStyle="#1d2520"; x.font="26px sans-serif"; y=wrap(x,D.analysis,46,y,W-92,38)+14; }
+  // CTA
+  if(D.cta){ y+=10; x.fillStyle="#0a7a3f"; x.font="bold 30px sans-serif"; x.fillText("📌 系统拆解",46,y); y+=44; x.fillStyle="#1d2520"; x.font="26px sans-serif"; y=wrap(x,D.cta,46,y,W-92,38)+14; }
+  // 金句
   if(D.quote){ y+=10; x.fillStyle="#0a7a3f"; x.font="bold 30px sans-serif"; x.fillText("💡 金句",46,y); y+=44; x.fillStyle="#1d2520"; x.font="italic 28px sans-serif"; y=wrap(x,"「"+D.quote+"」",46,y,W-92,38)+14; }
+  // 底部
   x.fillStyle="#0a7a3f"; x.fillRect(0,H-110,W,110);
-  x.fillStyle="#fff"; x.font="bold 28px sans-serif"; x.fillText("关注公众号【职场五阶说】回复“五阶”领避坑手册",46,H-50);
+  x.fillStyle="#fff"; x.font="bold 28px sans-serif"; x.fillText(`关注公众号【职场五阶说】回复"五阶"领避坑手册`,46,H-50);
   const a=document.createElement("a"); a.download="潜台词翻译.png"; a.href=c.toDataURL("image/png"); a.click();
 };
 function wrap(x,t,px,py,maxW,lh){ let line="",yy=py; for(const ch of t){ const t2=line+ch; if(x.measureText(t2).width>maxW){ x.fillText(line,px,yy); line=ch; yy+=lh; } else line=t2; } x.fillText(line,px,yy); return yy; }
