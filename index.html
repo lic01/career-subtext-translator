@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>职场五阶说 · 潜台词翻译器</title>
+<style>
+  :root{
+    --green:#0a7a3f;
+    --green-light:#1aa85c;
+    --green-bg:#eaf6ee;
+    --ink:#1d2520;
+    --muted:#6b7682;
+    --line:#e3e9e4;
+    --card:#ffffff;
+    --warn:#c0392b;
+    --gold:#b8860b;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:linear-gradient(180deg,#0a7a3f 0%,#0a7a3f 130px,#eef2ef 130px,#eef2ef 100%);
+    color:var(--ink);line-height:1.6;
+    min-height:100vh;
+  }
+  .wrap{max-width:480px;margin:0 auto;padding:0 16px 40px;}
+  header{padding:22px 4px 14px;color:#fff;}
+  .brand{font-size:20px;font-weight:800;letter-spacing:1px;}
+  .brand .dot{color:#a8e6c0;}
+  .sub{font-size:12.5px;opacity:.85;margin-top:3px;}
+  .panel{
+    background:var(--card);border-radius:16px;padding:16px;
+    box-shadow:0 6px 22px rgba(10,80,40,.10);margin-bottom:16px;
+  }
+  textarea{
+    width:100%;min-height:78px;border:1px solid var(--line);border-radius:12px;
+    padding:12px;font-size:15px;resize:none;outline:none;background:#fafbfa;color:var(--ink);
+    font-family:inherit;line-height:1.5;
+  }
+  textarea:focus{border-color:var(--green-light);background:#fff;}
+  /* 胶囊区 */
+  .caps{margin-top:14px;border-top:1px dashed var(--line);padding-top:12px;}
+  .cap-group{margin-bottom:11px;}
+  .cap-label{font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px;}
+  .cap-label .tip{font-weight:400;color:#9aa6a0;font-size:11px;}
+  .cap-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:3px;-webkit-overflow-scrolling:touch;}
+  .cap-row::-webkit-scrollbar{display:none;}
+  .cap{
+    flex:0 0 auto;font-size:12.5px;background:#f0f5f2;color:var(--green);
+    border:1px solid #dcebe2;border-radius:20px;padding:6px 13px;cursor:pointer;white-space:nowrap;transition:.12s;
+  }
+  .cap:active{background:var(--green-bg);}
+  .cap.sel{background:var(--green);color:#fff;border-color:var(--green);font-weight:700;}
+  .row{display:flex;gap:10px;margin-top:14px;align-items:center;}
+  .btn{
+    flex:1;background:var(--green);color:#fff;border:none;border-radius:12px;
+    padding:13px;font-size:15.5px;font-weight:700;cursor:pointer;transition:.15s;
+  }
+  .btn:active{transform:scale(.98);background:var(--green-light);}
+  .btn[disabled]{opacity:.55;cursor:not-allowed;}
+  .hint{font-size:11.5px;color:var(--muted);flex:0 0 auto;}
+  .examples{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+  .chip{font-size:12.5px;background:#f0f5f2;color:var(--green);border:1px solid #dcebe2;border-radius:20px;padding:6px 12px;cursor:pointer;}
+  .chip:active{background:var(--green-bg);}
+  /* result */
+  #result{display:none;}
+  .loading{text-align:center;color:var(--muted);font-size:13px;padding:22px 0;}
+  .spinner{width:22px;height:22px;border:3px solid var(--green-bg);border-top-color:var(--green);border-radius:50%;margin:0 auto 10px;animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .card{background:var(--card);border-radius:16px;padding:16px 16px 14px;margin-bottom:14px;box-shadow:0 4px 16px rgba(10,80,40,.08);border:1px solid #f0f4f1;}
+  .card .tag{font-size:12px;font-weight:800;color:var(--green);letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+  .decode{font-size:17px;font-weight:800;color:var(--ink);}
+  .indexbar{height:10px;border-radius:6px;background:#eef2f0;margin:12px 0 4px;overflow:hidden;}
+  .indexfill{height:100%;background:linear-gradient(90deg,#1aa85c,#e1b03a,#c0392b);border-radius:6px;transition:width .6s ease;}
+  .indexnum{font-size:12px;color:var(--muted);}
+  .indexnum b{color:var(--warn);font-size:14px;}
+  .layer{border-left:4px solid var(--green-light);padding:8px 0 8px 12px;margin:10px 0;background:#f7fbf8;border-radius:0 8px 8px 0;}
+  .layer .lt{font-size:13px;font-weight:700;color:var(--green);}
+  .layer .lc{font-size:14.5px;color:var(--ink);margin-top:2px;}
+  .reply{font-size:14.5px;color:var(--ink);background:var(--green-bg);border-radius:10px;padding:10px 12px;margin-bottom:9px;}
+  .reply:last-child{margin-bottom:0;}
+  .reply .rt{font-size:12px;color:var(--green);font-weight:800;margin-bottom:2px;}
+  .stage{font-size:14.5px;font-weight:700;color:var(--gold);}
+  .analysis{font-size:14px;color:var(--ink);line-height:1.7;}
+  .analysis .ab{color:var(--green);font-weight:700;}
+  .cta{background:linear-gradient(135deg,#0a7a3f,#127a4a);color:#fff;border-radius:14px;padding:14px;text-align:center;}
+  .cta .t1{font-size:15px;font-weight:800;}
+  .cta .t2{font-size:12.5px;opacity:.92;margin-top:4px;line-height:1.6;}
+  .cta .quote{font-size:13.5px;opacity:.95;margin-top:8px;font-style:italic;border-top:1px solid rgba(255,255,255,.25);padding-top:8px;}
+  .actions{display:flex;gap:10px;margin-top:6px;}
+  .actions .btn.ghost{flex:1;background:#fff;color:var(--green);border:1.5px solid var(--green);}
+  .footer{text-align:center;font-size:11px;color:var(--muted);margin-top:18px;line-height:1.7;}
+  #shareImg{display:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">职场五阶说<span class="dot">·</span></div>
+    <div class="sub">潜台词翻译器 — 把职场黑话，翻译成人话与真相</div>
+  </header>
+
+  <div class="panel">
+    <textarea id="input" placeholder="输入一句职场上让你犯嘀咕的话，例如：&#10;“小李啊，这个事不着急，你先琢磨琢磨。”"></textarea>
+
+    <div class="caps">
+      <div class="cap-group">
+        <div class="cap-label">谁说的 <span class="tip">选填，不收集姓名</span></div>
+        <div class="cap-row" data-group="who">
+          <span class="cap sel" data-v="AI推断">AI推断</span>
+          <span class="cap" data-v="直接上级">直接上级</span>
+          <span class="cap" data-v="隔层领导">隔层领导</span>
+          <span class="cap" data-v="平级同事">平级同事</span>
+          <span class="cap" data-v="下属">下属</span>
+          <span class="cap" data-v="客户">客户</span>
+        </div>
+      </div>
+      <div class="cap-group">
+        <div class="cap-label">什么场合 <span class="tip">选填</span></div>
+        <div class="cap-row" data-group="occ">
+          <span class="cap sel" data-v="AI推断">AI推断</span>
+          <span class="cap" data-v="私聊">私聊</span>
+          <span class="cap" data-v="会议">会议</span>
+          <span class="cap" data-v="群聊">群聊</span>
+          <span class="cap" data-v="书面">书面</span>
+        </div>
+      </div>
+      <div class="cap-group">
+        <div class="cap-label">你的阶段 <span class="tip">选填，强化五阶</span></div>
+        <div class="cap-row" data-group="stage">
+          <span class="cap sel" data-v="AI推断">AI推断</span>
+          <span class="cap" data-v="生存适应期">生存适应期</span>
+          <span class="cap" data-v="进阶成长期">进阶成长期</span>
+          <span class="cap" data-v="主力贡献期">主力贡献期</span>
+          <span class="cap" data-v="操盘管理期">操盘管理期</span>
+          <span class="cap" data-v="战略管理期">战略管理期</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="examples" id="examples">
+      <span class="chip">你很有想法，但执行还差点</span>
+      <span class="chip">这事儿不着急，你先琢磨琢磨</span>
+      <span class="chip">年轻人要多锻炼，别挑活</span>
+    </div>
+    <div class="row">
+      <button class="btn" id="go">开始翻译</button>
+      <span class="hint">免费 · 无需关注</span>
+    </div>
+  </div>
+
+  <div id="result">
+    <div class="loading" id="loading"><div class="spinner"></div>正在用 38 年经验拆解这句话…</div>
+    <div id="cards" style="display:none;"></div>
+    <div class="actions" id="act" style="display:none;">
+      <button class="btn ghost" id="share">生成分享图</button>
+    </div>
+  </div>
+
+  <div class="footer">
+    工具结论为理解参考，非绝对真相<br/>
+    想系统避坑？关注公众号【职场五阶说】回复“五阶”领《五阶避坑手册》
+  </div>
+</div>
+
+<canvas id="shareImg" width="1080" height="1440"></canvas>
+
+<script>
+const DEMO = {
+  decoded:"披着『培养年轻人』外衣的人事话语权巩固",
+  index:7.0,
+  layers:[
+    {t:"A面（社交面具）",c:"他在表演『体恤老员工、给年轻人机会』的好领导形象。"},
+    {t:"B面（权力意图）",c:"切断你对接大领导的路径、把露脸机会给年轻下属换忠诚度、质量风险转嫁甩锅。"},
+    {t:"C面（人性洞察）",c:"表层：怕你借大领导视线越级、图把核心资源握在自己人手里。底层：他的安全感绑在『人事我说了算』的控制感上，一旦你绕过他直接被高层看见，掌控叙事就裂了。"}
+  ],
+  replies:[
+    {tag:"温和版",c:"好的，那这部分让小张多锻炼，我这边配合把数据给他。"},
+    {tag:"中等版",c:"明白，我把手里核心数据整理好给小张，保证口径一致。"},
+    {tag:"高情商助攻版",c:"是得让年轻人多上手，不过这版汇报主管定的『精准触达核心用户』策略我来把关内容，您更放心。"}
+  ],
+  stage:"主力贡献期 · 领导警惕你接触高层资源，框你进执行骨干",
+  sceneRead:"",
+  analysis:"防御机制=合理化（『为你好』）；权力动态=向上借力被拦截；📖出处：五阶段框架",
+  cta:"想系统拆解职场潜规则与避坑？关注公众号【职场五阶说】，回复『五阶』领《五阶避坑手册》。",
+  quote:"体恤，有时是剥夺你上升机会的温柔刀。"
+};
+
+const $ = s=>document.querySelector(s);
+const input=$("#input"), go=$("#go"), result=$("#result"), loading=$("#loading"), cards=$("#cards"), act=$("#act");
+
+// 胶囊选择
+document.querySelectorAll(".cap-row").forEach(row=>{
+  row.querySelectorAll(".cap").forEach(cap=>{
+    cap.onclick=()=>{
+      row.querySelectorAll(".cap").forEach(x=>x.classList.remove("sel"));
+      cap.classList.add("sel");
+    };
+  });
+});
+function collectScene(){
+  const map={who:"谁说的",occ:"场合",stage:"阶段"};
+  const parts=[];
+  for(const g in map){
+    const v=document.querySelector(`.cap-row[data-group="${g}"] .cap.sel`).dataset.v;
+    if(v && v!=="AI推断") parts.push(map[g]+"="+v);
+  }
+  return parts.length?("场景："+parts.join("·")):"";
+}
+document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{input.value=c.textContent;input.focus();});
+
+go.onclick=async()=>{
+  const text=input.value.trim();
+  if(!text){input.focus();return;}
+  const scene=collectScene();
+  const full = scene ? (text+"\n[场景信息] "+scene) : text;
+  go.disabled=true; result.style.display="block"; loading.style.display="block"; cards.style.display="none"; act.style.display="none";
+  const base=(window.APP_CONFIG&&APP_CONFIG.PROXY_URL)||"";
+  try{
+    const r=await fetch(base+"/api/translate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:full})});
+    if(!r.ok) throw new Error("bad");
+    const j=await r.json();
+    render(j.data||j);
+  }catch(e){
+    render(DEMO, true);
+  }
+};
+
+function render(d, isDemo){
+  loading.style.display="none"; cards.style.display="block"; act.style.display="flex";
+  const idx=Math.max(0,Math.min(10,parseFloat(d.index)||0));
+  let h="";
+  h+=`<div class="card"><div class="tag">⚡ 一句话解码</div><div class="decode">${esc(d.decoded||"")}</div>`;
+  h+=`<div class="indexbar"><div class="indexfill" style="width:${idx*10}%"></div></div>`;
+  h+=`<div class="indexnum">人性洞察指数 <b>${idx.toFixed(1)}</b>/10　越高博弈越深</div></div>`;
+  h+=`<div class="card"><div class="tag">🔍 三层翻译</div>`;
+  (d.layers||[]).forEach(l=>{ h+=`<div class="layer"><div class="lt">${esc(l.t)}</div><div class="lc">${esc(l.c)}</div></div>`; });
+  h+=`</div>`;
+  if((d.replies||[]).length){
+    h+=`<div class="card"><div class="tag">🗺️ 这样接话（三选一）</div>`;
+    d.replies.forEach(rp=>{ h+=`<div class="reply"><div class="rt">${esc(rp.tag)}</div>${esc(rp.c)}</div>`; });
+    h+=`</div>`;
+  }
+  if(d.stage) h+=`<div class="card"><div class="tag">🪜 高发阶段·同句异读</div><div class="stage">${esc(d.stage)}</div></div>`;
+  if(d.sceneRead) h+=`<div class="card"><div class="tag">🌐 场景异读（同一句，不同语境）</div><div class="analysis">${esc(d.sceneRead)}</div></div>`;
+  if(d.analysis) h+=`<div class="card"><div class="tag">⚕️ 拆解</div><div class="analysis">${esc(d.analysis)}</div></div>`;
+  if(d.cta){
+    h+=`<div class="cta"><div class="t1">📌 想系统拆解职场潜规则与避坑？</div><div class="t2">${esc(d.cta)}</div>`;
+    if(d.quote) h+=`<div class="quote">「${esc(d.quote)}」</div>`;
+    h+=`</div>`;
+  }
+  if(isDemo) h+=`<div class="indexnum" style="text-align:center;margin-top:10px;">（当前为演示样例，配置接口后显示真实翻译）</div>`;
+  cards.innerHTML=h;
+  cards.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+function esc(s){return (s||"").replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));}
+
+$("#share").onclick=()=>{
+  const c=$("#shareImg"), x=c.getContext("2d");
+  const W=1080,H=1440; c.width=W;c.height=H;
+  const D = (window.__last||DEMO);
+  x.fillStyle="#0a7a3f"; x.fillRect(0,0,W,150);
+  x.fillStyle="#fff"; x.font="bold 46px sans-serif"; x.fillText("职场五阶说 · 潜台词翻译器",46,96);
+  x.fillStyle="#eaf6ee"; x.font="24px sans-serif"; x.fillText((input.value||"职场黑话").slice(0,26),46,128);
+  x.fillStyle="#fff"; x.fillRect(0,150,W,H-150);
+  let y=210;
+  x.fillStyle="#0a7a3f"; x.font="bold 30px sans-serif"; x.fillText("⚡ 一句话解码",46,y); y+=46;
+  x.fillStyle="#1d2520"; x.font="bold 36px sans-serif"; y=wrap(x, D.decoded||"", 46, y, W-92, 46)+16;
+  x.fillStyle="#eef2f0"; x.fillRect(46,y,W-92,22);
+  const idx=Math.max(0,Math.min(10,parseFloat(D.index)||0));
+  const g=x.createLinearGradient(46,0,W-46,0); g.addColorStop(0,"#1aa85c");g.addColorStop(.6,"#e1b03a");g.addColorStop(1,"#c0392b");
+  x.fillStyle=g; x.fillRect(46,y,(W-92)*idx/10,22); y+=58;
+  x.fillStyle="#c0392b"; x.font="bold 28px sans-serif"; x.fillText("人性洞察指数 "+idx.toFixed(1)+"/10",46,y); y+=56;
+  x.fillStyle="#0a7a3f"; x.font="bold 30px sans-serif"; x.fillText("🔍 三层翻译",46,y); y+=48;
+  x.font="26px sans-serif";
+  (D.layers||[]).forEach(l=>{ x.fillStyle="#0a7a3f"; x.font="bold 26px sans-serif"; x.fillText(l.t,46,y); y+=38; x.fillStyle="#1d2520"; x.font="26px sans-serif"; y=wrap(x,l.c,46,y,W-92,36)+14; });
+  if(D.stage){ y+=10; x.fillStyle="#0a7a3f"; x.font="bold 30px sans-serif"; x.fillText("🪜 高发阶段·同句异读",46,y); y+=44; x.fillStyle="#b8860b"; x.font="bold 28px sans-serif"; y=wrap(x,D.stage,46,y,W-92,38)+14; }
+  if(D.quote){ y+=10; x.fillStyle="#0a7a3f"; x.font="bold 30px sans-serif"; x.fillText("💡 金句",46,y); y+=44; x.fillStyle="#1d2520"; x.font="italic 28px sans-serif"; y=wrap(x,"「"+D.quote+"」",46,y,W-92,38)+14; }
+  x.fillStyle="#0a7a3f"; x.fillRect(0,H-110,W,110);
+  x.fillStyle="#fff"; x.font="bold 28px sans-serif"; x.fillText("关注公众号【职场五阶说】回复“五阶”领避坑手册",46,H-50);
+  const a=document.createElement("a"); a.download="潜台词翻译.png"; a.href=c.toDataURL("image/png"); a.click();
+};
+function wrap(x,t,px,py,maxW,lh){ let line="",yy=py; for(const ch of t){ const t2=line+ch; if(x.measureText(t2).width>maxW){ x.fillText(line,px,yy); line=ch; yy+=lh; } else line=t2; } x.fillText(line,px,yy); return yy; }
+
+// 保存最近一次渲染数据，供分享图使用
+const _render=render;
+render=function(d,isDemo){ window.__last=d; return _render(d,isDemo); };
+</script>
+<script src="config.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+# 依赖（Vercel 会在构建时自行安装，不入库）
+node_modules/
+
+# 密钥 / 环境变量（绝不能入库！PAT 只走 Vercel 后台环境变量）
+.env
+.env.*
+*.local
+
+# 日志
+*.log
+npm-debug.log*
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 编辑器 / 系统临时
+.idea/
+.vscode/
+.vercel

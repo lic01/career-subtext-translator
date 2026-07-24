@@ -1,0 +1,12 @@
+{
+  "name": "qiantxc-h5",
+  "version": "1.0.0",
+  "private": true,
+  "description": "职场潜台词翻译器 H5 + Coze 代理（零依赖）",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}
