@@ -165,9 +165,10 @@ async function callCoze(text) {
 
 const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && req.url.split('?')[0] === '/api/translate') {
-    let body = '';
-    req.on('data', c => body += c);
+    const chunks = [];
+    req.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(String(c))));
     req.on('end', async () => {
+      const body = Buffer.concat(chunks).toString('utf-8');
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       try {
