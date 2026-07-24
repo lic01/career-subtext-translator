@@ -92,6 +92,10 @@
   .actions .btn.ghost{flex:1;background:#fff;color:var(--green);border:1.5px solid var(--green);}
   .footer{text-align:center;font-size:11px;color:var(--muted);margin-top:18px;line-height:1.7;}
   #shareImg{display:none;}
+  .thinkbox{margin-top:10px;font-size:12px;color:#9aa6a0;background:#f5f7f6;border-radius:8px;padding:8px 10px;max-height:88px;overflow:auto;text-align:left;line-height:1.55;white-space:pre-wrap;word-break:break-word;}
+  .thinkbox:empty{display:none;}
+  .livebox{margin-top:8px;font-size:13.5px;color:#2a2f2b;background:#eef6f0;border-radius:8px;padding:10px 12px;text-align:left;line-height:1.7;white-space:pre-wrap;word-break:break-word;border-left:3px solid var(--green);}
+  .livebox:empty{display:none;}
 </style>
 </head>
 <body>
@@ -217,28 +221,53 @@ go.onclick=async()=>{
   const full = scene ? (text+"\n[场景信息] "+scene) : text;
   const _goText = go.textContent;
   go.disabled=true; result.style.display="block"; loading.style.display="block"; cards.style.display="none"; act.style.display="none";
-  // 实时计时，让用户知道"在动"而不是卡死
+  // 流式加载界面：状态行 + 深度思考实时文字 + 答案实时预览
+  loading.innerHTML =
+    '<div class="spinner"></div><div id="lt">正在用 38 年经验拆解这句话…</div>'+
+    '<div class="thinkbox" id="thinkbox"></div>'+
+    '<div class="livebox" id="livebox"></div>';
+  const lt=$("#lt"), thinkbox=$("#thinkbox"), livebox=$("#livebox");
   const t0 = Date.now();
   const tick = setInterval(()=>{
     const s = Math.floor((Date.now()-t0)/1000);
     go.textContent = `翻译中 ${s}s`;
-    if(s>30) loading.innerHTML = '<div class="spinner"></div>深度思考中，已等 '+s+'s…<br/><span style="font-size:12px;color:#888">（首次推理需拉知识库，耐心等一下；超过 60s 会自动超时）</span>';
-    else if(s>10) loading.innerHTML = '<div class="spinner"></div>深度思考中… 已等 '+s+'s';
+    if(s>8) lt.textContent = '💭 深度思考中… 已等 '+s+'s（边想边写，马上好）';
   }, 500);
   const base=(window.APP_CONFIG&&APP_CONFIG.PROXY_URL)||"";
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(()=>ctrl.abort(), 60000); // 60s 超时保护
+  let rendered=false;
   try{
-    const ctrl = new AbortController();
-    const timeoutId = setTimeout(()=>ctrl.abort(), 60000); // 60s 超时保护
     const r=await fetch(base+"/api/translate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:full}),signal:ctrl.signal});
     clearTimeout(timeoutId);
-    if(!r.ok) throw new Error("bad");
-    const j=await r.json();
-    render(j.data||j);
+    if(!r.ok || !r.body) throw new Error("bad");
+    const reader=r.body.getReader();
+    const dec=new TextDecoder("utf-8");
+    let buf="";
+    while(true){
+      const {done,value}=await reader.read();
+      if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      let idx;
+      while((idx=buf.indexOf("\n\n"))!==-1){
+        const raw=buf.slice(0,idx); buf=buf.slice(idx+2);
+        const dl=raw.split("\n").find(l=>l.startsWith("data:"));
+        if(!dl) continue;
+        let o; try{o=JSON.parse(dl.slice(5).trim());}catch(e){continue;}
+        if(o.type==='thinking'){ thinkbox.textContent+=o.delta; thinkbox.scrollTop=thinkbox.scrollHeight; }
+        else if(o.type==='answer'){ livebox.textContent+=o.delta; }
+        else if(o.type==='done'){ window.__last=o.data; render(o.data); rendered=true; }
+        else if(o.type==='error'){ throw new Error(o.message||"err"); }
+      }
+    }
   }catch(e){
-    if(e.name==="AbortError"){
-      loading.innerHTML = '<div style="color:#c0392b">⏱ 请求超时（>60s），请检查网络或重试</div>';
-    } else {
-      render(DEMO, true);
+    clearTimeout(timeoutId);
+    if(!rendered){
+      if(e.name==="AbortError"){
+        loading.innerHTML = '<div style="color:#c0392b">⏱ 请求超时（>60s），请检查网络或重试</div>';
+      } else {
+        render(DEMO, true);
+      }
     }
   }finally{
     clearInterval(tick);

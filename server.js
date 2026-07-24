@@ -40,7 +40,8 @@ function parseCoze(text) {
   };
 
   // 一句话解码 + 人性洞察指数（两段独立解析，避免 decM 边界切到 index 行）
-  const decM = text.match(/【一句话解码】[^\n]*\n?([\s\S]*?)(?=【三层翻译】|【这样接话】|【高发阶段|【场景异读】|【拆解】|【CTA)/);
+  // \s* 兼容两种格式：换行格式（【一句话解码】\n正文）与同行内联（【一句话解码】正文）
+  const decM = text.match(/【一句话解码】\s*([\s\S]*?)(?=\n*人性洞察指数|【三层翻译】|【这样接话】|【高发阶段|【场景异读】|【拆解】|【CTA)/);
   if (decM) {
     let block = decM[1];
     out.decoded = clean(until(block, ['人性洞察指数'])).replace(/\s*[+|＋]\s*$/, '');
@@ -172,6 +173,71 @@ async function callCoze(text) {
   return parseCoze(finalText);
 }
 
+// ---- SSE 流式翻译：把 Coze 的流式响应透传到浏览器，边想边写 ----
+function sse(res, obj) { res.write(`data: ${JSON.stringify(obj)}\n\n`); }
+
+async function streamTranslate(text, res) {
+  if (!PAT) { sse(res, { type: 'error', message: 'missing PAT' }); return; }
+  const resp = await fetch('https://api.coze.cn/v3/chat', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${PAT}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      bot_id: BOT_ID,
+      user_id: 'h5_' + Date.now(),
+      stream: true,
+      auto_save_history: false,
+      additional_messages: [{ role: 'user', content: text, content_type: 'text' }]
+    })
+  });
+  if (!resp.ok) {
+    let msg = 'coze http ' + resp.status;
+    try { const t = await resp.text(); if (t) msg += ' ' + t.slice(0, 200); } catch (e) {}
+    sse(res, { type: 'error', message: msg });
+    return;
+  }
+  const reader = resp.body.getReader();
+  const dec = new TextDecoder('utf-8');
+  let buf = '', full = '', reasonFull = '';
+  // 仅转发 answer 的"新增尾部"，避免 completed 完整段与增量重复导致前端翻倍
+  const appendAnswer = (c) => {
+    if (!c) return;
+    let appended = '';
+    if (full.length === 0) { full = c; appended = c; }
+    else if (full.includes(c)) { /* 子串，跳过 */ }
+    else if (c.includes(full)) { appended = c.slice(full.length); full = c; }
+    else if (!full.endsWith(c)) { appended = c; full += c; }
+    if (appended) sse(res, { type: 'answer', delta: appended });
+  };
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const blocks = buf.split('\n\n'); buf = blocks.pop();
+    for (const blk of blocks) {
+      const dl = blk.split('\n').find(l => l.startsWith('data:'));
+      if (!dl) continue;
+      let j;
+      try { j = JSON.parse(dl.slice(5).trim()); } catch (e) { continue; }
+      const m = (j && j.data) ? j.data : j;
+      if (!m || m.role !== 'assistant') continue;
+      if (m.type === 'reasoning' && m.content) {
+        reasonFull += m.content;
+        sse(res, { type: 'thinking', delta: m.content });
+      } else if (m.type === 'answer') {
+        if (m.reasoning_content) { reasonFull += m.reasoning_content; sse(res, { type: 'thinking', delta: m.reasoning_content }); }
+        if (m.content) appendAnswer(m.content);
+      }
+    }
+  }
+  const finalText = full.trim() ? full : reasonFull;
+  if (!finalText) { sse(res, { type: 'error', message: 'empty answer from Coze' }); return; }
+  try {
+    sse(res, { type: 'done', data: parseCoze(finalText) });
+  } catch (e) {
+    sse(res, { type: 'done', data: { decoded: finalText, raw: true } });
+  }
+}
+
 // Vercel / 本地 双模式入口：导出 HTTP handler（(req, res) => void）
 // Vercel 的 @vercel/node 会把 module.exports 当作请求处理器来调用
 // 本地直接 `node server.js` 时，require.main === module，再走 http.createServer 监听端口
@@ -182,16 +248,19 @@ function handler(req, res) {
     req.on('end', async () => {
       const body = Buffer.concat(chunks).toString('utf-8');
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.write(': connected\n\n');
       try {
         const { text } = JSON.parse(body || '{}');
-        if (!text || !text.trim()) { res.writeHead(400); return res.end(JSON.stringify({ error: 'empty text' })); }
-        const data = await callCoze(text.trim());
-        res.writeHead(200);
-        res.end(JSON.stringify({ ok: true, data }));
+        if (!text || !text.trim()) { sse(res, { type: 'error', message: 'empty text' }); return res.end(); }
+        await streamTranslate(text.trim(), res);
       } catch (e) {
-        res.writeHead(502);
-        res.end(JSON.stringify({ ok: false, error: e.message, hint: '请确认：1) COZE_PAT 环境变量已设置；2) 智能体已发布为 API 服务；3) 已关联知识库 zcdjzsk1~5' }));
+        sse(res, { type: 'error', message: e.message });
+      } finally {
+        res.end();
       }
     });
     return;
@@ -199,6 +268,9 @@ function handler(req, res) {
   if (req.method === 'OPTIONS') { res.setHeader('Access-Control-Allow-Origin', '*'); res.writeHead(204); return res.end(); }
   serveStatic(req, res);
 }
+
+// Vercel 函数超时（深度思考 + 知识库检索可能到 40-60s；配合前端 60s AbortController）
+handler.config = { maxDuration: 60 };
 
 // Vercel handler export（Vercel 期望 module.exports 是函数；附加属性 Vercel 不会当作入口）
 module.exports = handler;
