@@ -3,5 +3,7 @@
 // 2) 若把前端部署到 CloudStudio 静态站、代理部署到 Vercel/云函数，
 //    把下面的 '' 改成你的代理公网地址，例如 'https://your-proxy.vercel.app'
 window.APP_CONFIG = {
-  PROXY_URL: 'https://career-subtext-translator.vercel.app'
+  // 留空 = 同源模式。Vercel 一体托管前端+代理时，前端直接 fetch /api/translate（同域），
+  // 部署到任何域名都无需改动。若把前端与代理分开托管，再填代理公网地址。
+  PROXY_URL: ''
 };
